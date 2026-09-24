@@ -94,7 +94,8 @@ class Store:
         self.is_supabase = bool(self.supabase_url and self.supabase_key)
 
         if not self.is_supabase:
-            self.path = str(path or os.environ.get('DB_PATH', 'learn.sqlite3'))
+            default_db = '/tmp/learn.sqlite3' if os.environ.get('VERCEL') else 'learn.sqlite3'
+            self.path = str(path or os.environ.get('DB_PATH', default_db))
             if self.path != ':memory:':
                 Path(self.path).parent.mkdir(parents=True, exist_ok=True)
             with self.transaction() as conn:
