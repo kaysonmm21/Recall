@@ -356,7 +356,8 @@ def feedback(document, attempt, now):
         'usage': card.get('usage', '') if card else '',
         'sentence': card.get('sentence', '') if card else ''
     } if card else None
-    return {'attemptId': attempt['id'], 'correct': attempt['correct'], 'answer': attempt['plan']['answer'],
+    return {'attemptId': attempt['id'], 'cardId': attempt['plan']['cardId'],
+            'correct': attempt['correct'], 'answer': attempt['plan']['answer'],
             'submitted': attempt['submitted'], 'overridden': attempt.get('overridden', False),
             'retypeRequired': attempt.get('retypeRequired', False), 'progress': progress(document, now),
             'cardInfo': card_info}
@@ -471,6 +472,18 @@ class Application:
             if doc['settings']['starredOnly']:
                 doc['pending'] = None
             return {'ok': True}
+        if action == 'kick' and method == 'POST':
+            card_id = body.get('cardId')
+            if not isinstance(card_id, str) or not any(c['id'] == card_id for c in doc['cards']):
+                fail('Card not found.', 404)
+            doc['cards'] = [c for c in doc['cards'] if c['id'] != card_id]
+            doc['states'] = {k: v for k, v in doc['states'].items() if k.split(':', 1)[0] != card_id}
+            doc['recent'] = [k for k in doc['recent'] if k.split(':', 1)[0] != card_id]
+            if doc.get('pending') and doc['pending']['plan']['cardId'] == card_id:
+                doc['pending'] = None
+            if doc.get('lastAttempt') and doc['lastAttempt']['plan']['cardId'] == card_id:
+                doc['lastAttempt'] = None
+            return public_set(doc, now)
         if (action == 'start' and method == 'POST') or (action == 'settings' and method == 'PATCH'):
             settings = validate_settings(body.get('settings', {}), doc['settings'])
             if action == 'start' and not any(not settings['starredOnly'] or c['starred'] for c in doc['cards']):

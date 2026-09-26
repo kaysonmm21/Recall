@@ -7,7 +7,7 @@ Settings: `{directions: ['term_to_definition'], types: ['multiple_choice','flash
 Set: `{id,title,description,cards: Card[],settings: Settings,pathStarted: bool,progress: Progress}`.
 Progress: `{not_studied: number,still_learning: number,mastered: number,total: number,streak: number}`.
 Question: `{token,cardId,direction,type,prompt,choices: [{id,text}],progress}`. No written canonical answer exposed. Flashcard reveal through endpoint.
-Feedback: `{attemptId,correct,answer,submitted,overridden,retypeRequired,progress}`.
+Feedback: `{attemptId,cardId,correct,answer,submitted,overridden,retypeRequired,progress}`.
 
 ## API
 GET /config -> {supabaseUrl,publishableKey}. Public browser Auth configuration.
@@ -17,6 +17,7 @@ GET /sets/:id -> Set.
 PUT /sets/:id body {title,description,cards:[{id?,term,definition,starred?,aliases?,parts?}]} -> Set. Preserve unchanged card IDs/history, invalidate progress of changed card content.
 DELETE /sets/:id -> {ok:true}.
 POST /sets/:id/star body {cardId,starred} -> {ok:true}.
+POST /sets/:id/kick body {cardId} -> Set. Remove the card and its study state; discard its pending question and last feedback when applicable.
 POST /sets/:id/start body {settings} -> {ok:true}. Validate settings; do not create graded progress until answer.
 PATCH /sets/:id/settings body {settings} -> {ok:true,progress}.
 GET /sets/:id/next -> Question or {complete:true,progress}. Return existing unanswered question on refresh. Next remains blocked until required retype is done.

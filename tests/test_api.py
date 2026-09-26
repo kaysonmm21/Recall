@@ -76,6 +76,28 @@ class APITests(unittest.TestCase):
         self.call('PUT', self.base, {'cards': doc['cards']})
         self.assertEqual(self.snapshot()['states'], {})
 
+    def test_kick_current_word_removes_it_and_its_pending_question(self):
+        question = self.call('GET', self.base + '/next')
+        result = self.call('POST', self.base + '/kick', {'cardId': question['cardId']})
+        self.assertEqual(len(result['cards']), 1)
+        self.assertNotIn(question['cardId'], [card['id'] for card in result['cards']])
+        self.assertIsNone(self.snapshot()['pending'])
+        remaining = self.call('GET', self.base + '/next')
+        self.assertNotEqual(remaining['cardId'], question['cardId'])
+        empty = self.call('POST', self.base + '/kick', {'cardId': remaining['cardId']})
+        self.assertEqual(empty['cards'], [])
+        self.assertTrue(self.call('GET', self.base + '/next')['complete'])
+
+    def test_kick_answered_word_clears_its_progress(self):
+        question = self.call('GET', self.base + '/next')
+        result = self.answer(question, self.correct(question))
+        self.assertEqual(result['cardId'], question['cardId'])
+        self.call('POST', self.base + '/kick', {'cardId': question['cardId']})
+        snapshot = self.snapshot()
+        self.assertFalse(any(key.startswith(question['cardId'] + ':') for key in snapshot['states']))
+        self.assertFalse(any(key.startswith(question['cardId'] + ':') for key in snapshot['recent']))
+        self.assertIsNone(snapshot['lastAttempt'])
+
     def test_override_preserves_original_audit_and_replays_streak(self):
         q = self.call('GET', self.base + '/next')
         self.answer(q, self.correct(q))
