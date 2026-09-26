@@ -1,5 +1,5 @@
 # Implementation contract
-Python 3.9+, standard library only. Run `python3 server.py`, localhost:8000. Static files in web/. SQLite durable data. JSON API, errors `{error: string}` with appropriate HTTP status. Identity: X-User-Key bearer recovery key, browser stores it in localStorage; POST /api/identity without key returns `{key}`. All other API requests require key. All paths below prefixed /api.
+Python 3.9+, standard library only. Run `python3 server.py`, localhost:8000. Static files in web/. Production data lives in Supabase. Supabase Auth email/password sessions are held by the browser; API requests carry `Authorization: Bearer <access_token>`. The server checks the token with Supabase Auth and accesses PostgREST with the user's JWT. RLS owns sets and events by `owner_id = auth.uid()`. Tests can use explicit `DB_PATH` SQLite fixtures. JSON errors use `{error: string}` with appropriate HTTP status. All paths below prefixed /api. `SUPABASE_URL` and a publishable/anon project key are required for account storage; no service-role key is used.
 
 ## Shared shapes
 Card: `{id, term, definition, starred: bool, aliases: [], parts: [], explanation?: string, usage?: string, sentence?: string}`. Optional `explanation`, `usage`, `sentence` default to empty strings.
@@ -10,7 +10,7 @@ Question: `{token,cardId,direction,type,prompt,choices: [{id,text}],progress}`. 
 Feedback: `{attemptId,correct,answer,submitted,overridden,retypeRequired,progress}`.
 
 ## API
-POST /identity -> {key}. New identity gets a 20-card GRE starter set.
+GET /config -> {supabaseUrl,publishableKey}. Public browser Auth configuration.
 GET /sets -> {sets: [{id,title,description,cardCount,progress}]}.
 POST /sets body {title,description,cards:[{term,definition,aliases?,parts?}]} -> Set.
 GET /sets/:id -> Set.
@@ -38,9 +38,6 @@ progress(cards, states, settings, now, streak=0) -> Progress. states keyed `card
 choose_question(cards, states, settings, recent, now) -> plan or None. recent list of keys chronological. plan `{cardId,direction,type,prompt,answer,choices:[{id,text}],correctIds?:[]}`. Exclude mastered candidates, anti-repeat, adaptive priority. Backend strips answer/correctIds. Plan may contain internal fields.
 Engine state schema uses camelCase counters: attempts, correctAttempts, incorrectAttempts, consecutiveCorrect, lastOutcome, lastAttemptAt, previousAttemptAt, lastQuestionType, initialPrior. State timestamps Unix seconds. Engine may add fields.
 
-## Boundaries
-Agent engine owns engine.py + tests/test_engine.py.
-Agent backend owns server.py + storage.py + tests/test_api.py.
-Agent frontend owns web/*.
-Integrator owns CONTRACT.md, tests/test_acceptance.py, tests/fixtures.json, README.md, .gitignore.
-No dependencies or network services. No semantic AI. Write/Spell optional deferred. Keep implementation simple. Communicate contract amendments before changing interfaces.
+## Storage contract
+
+Supabase migrations are the database source of truth. `sets.version` is an internal revision. `save_set_document(target_set_id, expected_version, new_document, pending_events, clear_events)` updates a set and its events in one transaction only when the revision matches; a false result means the caller must reload and retry or report a conflict. The event records are always assigned the target set and current account by the function. Legacy `users` rows and recovery-key sets are inaccessible to browser roles. Active records use `owner_id`; their old `owner` field is null.

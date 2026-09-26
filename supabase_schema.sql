@@ -1,29 +1,6 @@
--- Run this script in the Supabase SQL Editor:
--- https://supabase.com/dashboard/project/_/sql
-
--- 1. Create users table
-CREATE TABLE IF NOT EXISTS users (
-    key TEXT PRIMARY KEY,
-    created DOUBLE PRECISION NOT NULL
-);
-
--- 2. Create sets table
-CREATE TABLE IF NOT EXISTS sets (
-    id TEXT PRIMARY KEY,
-    owner TEXT NOT NULL REFERENCES users(key) ON DELETE CASCADE,
-    document JSONB NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS sets_owner_idx ON sets(owner);
-
--- 3. Create events table
-CREATE TABLE IF NOT EXISTS events (
-    id TEXT PRIMARY KEY,
-    set_id TEXT NOT NULL,
-    owner TEXT NOT NULL REFERENCES users(key) ON DELETE CASCADE,
-    kind TEXT NOT NULL,
-    created DOUBLE PRECISION NOT NULL,
-    document JSONB NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS events_set_idx ON events(set_id);
+-- The source of truth is supabase/migrations/.
+-- New project: apply all migration files in timestamp order. The historical
+-- RLS migration versions have been made safe for a fresh deployment.
+-- Existing project with the old recall tables: apply only
+-- 20260926000000_account_auth.sql. It removes any old broad policies.
+-- This file is an index, not a standalone schema to paste into SQL Editor.

@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import engine
-from storage import Store
+from storage import ConcurrentUpdateConflict, Store
 
 ROOT = Path(__file__).resolve().parent
 TOKEN_TTL = 30 * 60
@@ -370,16 +370,27 @@ class Application:
         body = {} if body is None else body
         if not isinstance(body, dict):
             fail('Request body must be an object.')
+        if method == 'GET' and path == '/api/config':
+            return {'supabaseUrl': self.store.supabase_url if self.store.is_supabase else None,
+                    'publishableKey': self.store.supabase_key if self.store.is_supabase else None}
         now = time.time()
-        with self.store.transaction() as conn:
-            if method == 'POST' and path == '/api/identity':
+        if self.store.is_supabase:
+            user_id = self.store.user_for_token(key)
+            if not user_id:
+                fail('Sign in to continue.', 401)
+            owner = user_id
+        else:
+            owner = key
+        with self.store.transaction(key if self.store.is_supabase else None) as conn:
+            if not self.store.is_supabase and method == 'POST' and path == '/api/identity':
                 key = secrets.token_urlsafe(32)
                 conn.execute('INSERT INTO users VALUES(?,?)', (key, now))
                 cards, _ = validate_cards([{'term': t, 'definition': d} for t, d in STARTER])
                 self.store.save(conn, key, new_set('GRE essentials', 'Twenty useful words to start practicing.', cards))
                 return {'key': key}
-            if not key or not conn.execute('SELECT key FROM users WHERE key=?', (key,)).fetchone():
+            if not self.store.is_supabase and (not key or not conn.execute('SELECT key FROM users WHERE key=?', (key,)).fetchone()):
                 fail('A valid recovery key is required.', 401)
+            key = owner
             if method == 'POST' and path in ('/api/sets/import', '/api/import'):
                 file_info = (files or {}).get('file')
                 if not file_info or not file_info.get('data'):
@@ -423,9 +434,12 @@ class Application:
             doc = json.loads(row['document'])
             action = segments[3] if len(segments) == 4 else ''
             result = self.set_request(conn, key, doc, method, action, body, now)
-            if method != 'DELETE':
+            if method != 'DELETE' and (method != 'GET' or action == 'next'):
                 doc['updatedAt'] = now
-                self.store.save(conn, key, doc)
+                try:
+                    self.store.save(conn, key, doc)
+                except ConcurrentUpdateConflict:
+                    fail('This set changed in another session. Reload and try again.', 409)
             return result
 
     def set_request(self, conn, key, doc, method, action, body, now):
@@ -654,7 +668,9 @@ class Handler(BaseHTTPRequestHandler):
                             body = json.loads(raw_body)
                         except (ValueError, UnicodeDecodeError):
                             fail('Invalid JSON body.')
-                result = self.server.application.request(self.command, path.rstrip('/'), self.headers.get('X-User-Key'), body, files=files)
+                authorization = self.headers.get('Authorization', '')
+                token = authorization[7:] if authorization.startswith('Bearer ') else self.headers.get('X-User-Key')
+                result = self.server.application.request(self.command, path.rstrip('/'), token, body, files=files)
                 self.send_json(result)
                 return
             if self.command != 'GET':
@@ -686,7 +702,26 @@ def make_server(host='127.0.0.1', port=8000, db_path=None):
     return server
 
 
+def load_local_env():
+    """Read local Supabase settings without overriding deployment environment."""
+    env_file = ROOT / '.env.local'
+    if not env_file.is_file():
+        return
+    allowed = {'SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_ANON_KEY'}
+    for line in env_file.read_text(encoding='utf-8').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        name, value = line.split('=', 1)
+        name, value = name.strip(), value.strip()
+        if name in allowed:
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                value = value[1:-1]
+            os.environ.setdefault(name, value)
+
+
 if __name__ == '__main__':
+    load_local_env()
     server = make_server(os.environ.get('HOST', '127.0.0.1'), int(os.environ.get('PORT', '8000')))
     print('Learn is running at http://%s:%s' % server.server_address, flush=True)
     try:

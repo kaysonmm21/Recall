@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from server import Application, parse_multipart
+from server import APIError, Application, parse_multipart
 import json
 import mimetypes
 
@@ -13,9 +13,8 @@ def app(environ, start_response):
     method = environ.get('REQUEST_METHOD', 'GET')
     
     headers = [
-        ('Access-Control-Allow-Origin', '*'),
-        ('Access-Control-Allow-Headers', 'Content-Type, X-User-Key'),
-        ('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+        ('Access-Control-Allow-Headers', 'Content-Type, Authorization'),
+        ('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
     ]
     
     if method == 'OPTIONS':
@@ -23,7 +22,8 @@ def app(environ, start_response):
         return [b'']
         
     if path.startswith('/api'):
-        key = environ.get('HTTP_X_USER_KEY')
+        authorization = environ.get('HTTP_AUTHORIZATION', '')
+        key = authorization[7:] if authorization.startswith('Bearer ') else environ.get('HTTP_X_USER_KEY')
         body_bytes = b''
         try:
             length = int(environ.get('CONTENT_LENGTH', '0') or '0')
@@ -51,17 +51,19 @@ def app(environ, start_response):
             headers.append(('Content-Type', 'application/json; charset=utf-8'))
             start_response('200 OK', headers)
             return [res_bytes]
-        except Exception as err:
-            status_code = getattr(err, 'status', 400) if hasattr(err, 'status') else 400
-            err_msg = str(err)
+        except APIError as err:
             headers.append(('Content-Type', 'application/json; charset=utf-8'))
-            start_response(f'{status_code} Error', headers)
-            return [json.dumps({'error': err_msg}).encode('utf-8')]
+            start_response(f'{err.status} Error', headers)
+            return [json.dumps(err.payload).encode('utf-8')]
+        except Exception:
+            headers.append(('Content-Type', 'application/json; charset=utf-8'))
+            start_response('500 Internal Server Error', headers)
+            return [b'{"error": "An unexpected server error occurred."}']
 
     root = Path(__file__).parent.parent / 'web'
     filename = 'index.html' if path in ('/', '') else path.lstrip('/')
-    target = root / filename
-    if target.is_file():
+    target = (root / filename).resolve()
+    if target.is_file() and target.is_relative_to(root.resolve()):
         mime = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
         headers.append(('Content-Type', f"{mime}; charset=utf-8"))
         start_response('200 OK', headers)
